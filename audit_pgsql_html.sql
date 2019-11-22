@@ -1,7 +1,7 @@
 -- AUDIT BASES POSTGRESQL
--- v0.3
+-- v0.4
 -- Compatible (testé sur) PostgreSQL 9
--- FSo 2016-2017
+-- FSo 2016-2019
 -- Docs :
 -- https://wiki.evolix.org/HowtoPostgreSQL
 -- https://public.dalibo.com/exports/formation/manuels/formations/dba4/dba4.handout.html
@@ -21,6 +21,7 @@
 --   10/2016 v0.1 : Creation du script
 --   05/2017 v0.2 : Les principales requêtes sont mises en forme.
 --   06/2017 v0.3 : Liste des indexes manquants et indexes inutilisés
+--   11/2019 v0.4 : Ajout des statistiques sur les requêtes longues
 -- -----------
 -- Librement inspire d'internet, des sites, et des scripts et tips suivants :
 -- http://www.dalibo.org/glmf106_les_vues_systemes_sous_postgresql_8.3
@@ -29,12 +30,14 @@
 -- https://gist.github.com/Kartones/dd3ff5ec5ea238d4c546
 -- https://easyteam.fr/postgresql-tout-savoir-sur-le-shared_buffer/
 -- https://www.postgresql.org/docs/current/monitoring-stats.html
--- et de tous ceux cités ci-dessous.
+-- et notamment
+-- https://github.com/jfcoz/postgresqltuner
+-- et de tous les autres cités éventuellement ci-dessous.
 -- Que leurs auteurs en soient remerciés.
-
+--
 -- Configurateur : https://pgtune.leopard.in.ua/#/
 -- Tracker IO : https://pgphil.ovh/traqueur_96_07.php
-
+--
 -- -----------
 -- NOTE : La plupart des stats nécessitent l'activation du plugin pg_stat_statements
 -- http://okigiveup.net/what-postgresql-tells-you-about-its-performance/
@@ -261,11 +264,14 @@ select '<table border=1 width=100% bgcolor="WHITE">';
 select '<tr><td bgcolor="#3399CC" align=center colspan=2><font color="WHITE"><b>Informations g&eacute;n&eacute;rales</b></font></td></tr>';
 select '<tr><td bgcolor="WHITE" align=left width=30%><b>Version</b></td><td bgcolor="LIGHTBLUE" align=center>', version(),'</b></td></tr>';
 --SELECT '<tr><td bgcolor="WHITE" align=center width=40%><b>Start time</b></td><td bgcolor="LIGHTBLUE" align=center>',pg_postmaster_start_time();
-SELECT '<tr><td bgcolor="WHITE" align=left width=30%><b>Uptime</b></td><td bgcolor="LIGHTBLUE" align=center>', 'Depuis le ' || to_char(pg_postmaster_start_time(), 'DD/MM/YYYY HH24:MI:SS') || ' (' || to_char(now() - pg_postmaster_start_time(),'DD') || ' jours ' || to_char(now() - pg_postmaster_start_time(),'HH24') || ' heures)';
+SELECT '<tr><td bgcolor="WHITE" align=left width=30%><b>Uptime</b></td><td bgcolor="LIGHTBLUE" align=center>', 'Depuis le ' || to_char(pg_postmaster_start_time(), 'DD/MM/YYYY HH24:MI:SS') || ' (' || to_char(now() - pg_postmaster_start_time(),'DD') || ' jours ' || to_char(now() - pg_postmaster_start_time(),'HH24') || ' heures ' || to_char(now() - pg_postmaster_start_time(),'MI') || ' minutes)' ;
 -- to_char(now() - pg_postmaster_start_time(), 'MI') || ' minutes' || ')';
 
 -- SHOW config_file;
 -- où récupérer l'info en sql ?
+
+-- EXTENSION
+-- select extname from pg_extension;
 
 select '</table>';
 select '<br>';
@@ -285,7 +291,7 @@ select '<br>';
 
 -- ************ Liste databases ************
 select '<table border=1 width=100% bgcolor="WHITE">';
-select '<tr><td bgcolor="#3399CC" align=center colspan=2><font color="WHITE"><b>Liste des bases de donn&eacute;es</b></font></td></tr>';
+select '<tr><td bgcolor="#3399CC" align=center colspan=2><font color="WHITE"><b>Liste des bases de donn&eacute;es (hors templates)</b></font></td></tr>';
 select '<tr><td bgcolor="WHITE" align=center width=40%><b>Database</b></td><td bgcolor="WHITE" align=center><b>Taille</b></td></tr>';
 select '<tr><td bgcolor="WHITE" align=left width=40%><b>', datname, '</b></td><td bgcolor="LIGHTBLUE" align=right>', pg_size_pretty(PG_DATABASE_SIZE(oid)),'</b></td></tr>'
  FROM pg_database
@@ -420,7 +426,7 @@ select '<br>';
 
 -- possible aussi sur pg_stat_activity POUR LES REQUETES EN COURS. Tableau à valider 211119
 select '<table border=1 width=100% bgcolor="WHITE">';
-select '<tr><td bgcolor="#3399CC" align=center colspan=4><font color="WHITE"><b>Requ&ecirc;tes longues</b></font></td></tr>';
+select '<tr><td bgcolor="#3399CC" align=center colspan=4><font color="WHITE"><b>Requ&ecirc;tes longues (sessions actives)</b></font></td></tr>';
 select '<tr><td bgcolor="WHITE" align=center><b>PID</b></td><td bgcolor="WHITE" align=center><b>Dure&eacute;</b></td><td bgcolor="WHITE" align=center><b>Requ&ecirc;te</b></td><td bgcolor="WHITE" align=center><b>Etat</b></td></tr>';
 SELECT
   '<tr><td bgcolor="LIGHTBLUE" align=left>',pid,'</td><td bgcolor="LIGHTBLUE" align=left>',now() - pg_stat_activity.query_start,
@@ -468,7 +474,8 @@ select CASE WHEN EXISTS( SELECT 1
 \gset
 select '-->';
 
-select '<tr><td bgcolor="WHITE" align=left><b>Nombre total de processus actifs</b></td><td bgcolor="WHITE" align=right colspan=4>', count(:psa_colpid), '</td></tr>'
+-- exclude our own audit session
+select '<tr><td bgcolor="WHITE" align=left><b>Nombre total de processus actifs</b></td><td bgcolor="',CASE WHEN count(:psa_colpid) - 1 = 0 THEN 'LIGHTGREY' ELSE 'LIGHTBLUE' END, '" align=right colspan=4>', count(:psa_colpid) - 1, '</td></tr>'
 from pg_stat_activity;
 
 select '</table>';
@@ -515,6 +522,10 @@ SELECT '<tr><td bgcolor="LIGHTBLUE" align=left>',relname,'</td><td bgcolor="LIGH
  WHERE schemaname='public' AND pg_relation_size(relname::regclass)>80000 AND seq_scan-idx_scan > 0
  ORDER BY seq_scan-idx_scan DESC;
 
+SELECT CASE WHEN count(relname)=0 THEN '<tr><td bgcolor="LIGHTGREY" align=center colspan=6>Aucun index manquant</td></tr>' END
+ FROM pg_stat_all_tables
+ WHERE schemaname='public' AND pg_relation_size(relname::regclass)>80000 AND seq_scan-idx_scan > 0;
+
 select '</table>';
 select '<br>';
 
@@ -531,9 +542,16 @@ select '<tr><td bgcolor="WHITE" align=center><b>Table</b></td><td bgcolor="WHITE
 SELECT '<tr><td bgcolor="LIGHTBLUE" align=left>', relid::regclass, '</td><td bgcolor="LIGHTBLUE" align=left>', indexrelid::regclass, '</td><td bgcolor="LIGHTBLUE" align=right>', pg_size_pretty(pg_relation_size(indexrelid::regclass)),'</td></tr>'
  FROM pg_stat_user_indexes JOIN pg_index USING (indexrelid)
  WHERE idx_scan = 0 AND indisunique is false;
-select '<tr><td bgcolor="WHITE" align=left><b>Taille totale</b></td><td bgcolor="WHITE" align=right colspan=2>', pg_size_pretty(sum(pg_relation_size(indexrelid::regclass))::bigint),'</td></tr>' 
+
+SELECT CASE WHEN count(relname)=0 THEN '<tr><td bgcolor="LIGHTGREY" align=center colspan=6>Aucun index inutilis&eacute;</td></tr>' 
+       ELSE '<tr><td bgcolor="WHITE" align=left><b>Taille totale</b></td><td bgcolor="WHITE" align=right colspan=2>' || pg_size_pretty(sum(pg_relation_size(indexrelid::regclass))::bigint) || '</td></tr>' END
  FROM pg_stat_user_indexes JOIN pg_index USING (indexrelid)
  WHERE idx_scan = 0 AND indisunique is false;
+
+-- select '<tr><td bgcolor="WHITE" align=left><b>Taille totale</b></td><td bgcolor="WHITE" align=right colspan=2>', pg_size_pretty(sum(pg_relation_size(indexrelid::regclass))::bigint),'</td></tr>' 
+-- FROM pg_stat_user_indexes JOIN pg_index USING (indexrelid)
+-- WHERE idx_scan = 0 AND indisunique is false;
+
 select '</table>';
 select '<br>';
 
