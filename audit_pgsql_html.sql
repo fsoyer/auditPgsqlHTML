@@ -265,14 +265,62 @@ select '<tr><td bgcolor="#3399CC" align=center colspan=2><font color="WHITE"><b>
 select '<tr><td bgcolor="WHITE" align=left width=30%><b>Version</b></td><td bgcolor="LIGHTBLUE" align=center>', version(),'</b></td></tr>';
 --SELECT '<tr><td bgcolor="WHITE" align=center width=40%><b>Start time</b></td><td bgcolor="LIGHTBLUE" align=center>',pg_postmaster_start_time();
 SELECT '<tr><td bgcolor="WHITE" align=left width=30%><b>Uptime</b></td><td bgcolor="LIGHTBLUE" align=center>', 'Depuis le ' || to_char(pg_postmaster_start_time(), 'DD/MM/YYYY HH24:MI:SS') || ' (' || to_char(now() - pg_postmaster_start_time(),'DD') || ' jours ' || to_char(now() - pg_postmaster_start_time(),'HH24') || ' heures ' || to_char(now() - pg_postmaster_start_time(),'MI') || ' minutes)' ;
--- to_char(now() - pg_postmaster_start_time(), 'MI') || ' minutes' || ')';
 
--- SHOW config_file;
--- où récupérer l'info en sql ?
+select '</table>';
+select '<br>';
 
--- EXTENSION
--- select extname from pg_extension;
+-- *************************************** Paramètres d'init *********************
+select '<hr>';
+select '<div align=center><b><font color="WHITE">SECTION CONFIGURATION</font></b></div>';
+select '<hr>';
 
+select '<table border=1 width=100% bgcolor="WHITE">';
+select '<tr><td bgcolor="#3399CC" align=center colspan=4><font color="WHITE"><b>Principaux param&egrave;tres d''initialisation</b></font></td></tr>';
+select '<tr><td bgcolor="WHITE" align=center width=40%><b>Nom</b></td><td bgcolor="WHITE" align=center><b>Valeur</b></td><td bgcolor="WHITE" align=center><b>Source</b></td><td bgcolor="WHITE" align=center><b>Modifiable ?</b></td></tr>';
+
+select '<tr><td bgcolor="WHITE" align=left><b>', name, '</b></td><td bgcolor="LIGHTBLUE" align=left>', setting, '</td><td bgcolor="LIGHTBLUE" align=left>', source, '</td><td bgcolor="LIGHTBLUE" align=left>', context, '</td></tr>' from pg_settings where name in (
+'archive_mode',
+'archive_command',
+'autovacuum',
+'effective_cache_size',
+'external_pid_file',
+'force_parallel_mode',
+'hba_file',
+'ident_file',
+'log_destination',
+'logging_collector',
+'maintenance_work_mem',
+'max_connections',
+'password_encryption',
+'search_path',
+'shared_buffers',
+'ssl',
+'temp_buffers',
+'wal_level',
+'fsync',
+'work_mem');
+
+select '</table>';
+select '<br>';
+
+-- TODO : les paramètres peuvent être surchargés par base, par utilisateur, par session... Comment récupérer ces surcharges ? Et les relier à leur objet (par base, par user,...)
+-- pg_file_settings affiche les valeurs de postgresl.conf qui ne sont pas commentées
+-- pg_settings affiche toutes les valeurs, y compris celles qui sont par défaut
+-- pg_db_role_setting affiche les surcharges
+-- afficher les surcharges par rôle :
+-- select datname,rolname,setconfig from pg_db_role_setting,pg_roles,pg_database where setdatabase=pg_database.oid and setrole=pg_roles.oid;
+-- Les surcharges databases ont un rôle = 0
+-- select datname,'DATABASE' as source,setconfig from pg_db_role_setting,pg_database where setdatabase=pg_database.oid and setrole=0;
+-- PRINCIPE:
+-- afficher les valeurs modifiées ou décommentées dans postgresql.conf : pg_file_settings
+-- afficher les valeurs qui ne sont pas "source=default" dans pg_settings et <> 'user' ?
+-- afficher les surcharges databases (setrole=0) : pg_db_role_setting where setrole=0
+-- afficher les surcharges roles : pg_db_role_setting
+
+-- *************************************** Extensions *********************
+select '<table border=1 width=100% bgcolor="WHITE">';
+select '<tr><td bgcolor="#3399CC" align=center colspan=2><font color="WHITE"><b>Extensions install&eacute;es</b></font></td></tr>';
+select '<tr><td bgcolor="WHITE" align=left><b>', extname, '</b></td></tr>' from pg_extension;
 select '</table>';
 select '<br>';
 
@@ -301,7 +349,7 @@ select '</table>';
 select '<br>';
 -- ************ Tailles tablespaces ************
 select '<table border=1 width=100% bgcolor="WHITE">';
-select '<tr><td bgcolor="#3399CC" align=center colspan=2><font color="WHITE"><b>Taille des tablespaces</b></font></td></tr>';
+select '<tr><td bgcolor="#3399CC" align=center colspan=2><font color="WHITE"><b>Liste et taille des tablespaces</b></font></td></tr>';
 select '<tr><td bgcolor="WHITE" align=center width=40%><b>Tablespace</b></td><td bgcolor="WHITE" align=center><b>Taille</b></td></tr>';
 SELECT '<tr><td bgcolor="WHITE" align=left width=40%><b>',spcname, '</b></td><td bgcolor="LIGHTBLUE" align=right>', pg_size_pretty(PG_TABLESPACE_SIZE(spcname)),'</b></td></tr>'
  FROM pg_tablespace
@@ -312,6 +360,7 @@ select '<br>';
 
 -- ************ Tailles objets ************
 -- !!! COMMENT L'AFFICHER POUR CHAQUE BASE, PAS SEULEMENT current_database ??
+
 select '<table border=1 width=100% bgcolor="WHITE">';
 select '<tr><td bgcolor="#3399CC" align=center colspan=2><font color="WHITE"><b>Taille totale des objets (base en cours: ',current_database(),')</b></font></td></tr>';
 select '<tr><td bgcolor="WHITE" align=center width=40%><b>Type</b></td><td bgcolor="WHITE" align=center><b>Taille totale (*octets)</b></td></tr>';
@@ -341,9 +390,6 @@ select '<tr><td bgcolor="#3399CC" align=center colspan=2><font color="WHITE"><b>
  SELECT '<tr><td bgcolor="WHITE" align=left width=40%><b>','Ratio', '</b></td><td bgcolor="LIGHTBLUE" align=right>', CASE WHEN (sum(heap_blks_hit) + sum(heap_blks_read)) > 0 THEN ROUND((sum(heap_blks_hit) / (sum(heap_blks_hit) + sum(heap_blks_read))) * 100, 2) ELSE 0 END as ratio,'%</td></tr>'
  FROM 
    pg_statio_user_tables;
-
-select '</table>';
-select '<br>';
 
 -- ************ Ecritures ************
 select '<table border=1 width=100% bgcolor="WHITE">';
@@ -426,17 +472,21 @@ select '<br>';
 
 -- possible aussi sur pg_stat_activity POUR LES REQUETES EN COURS. Tableau à valider 211119
 select '<table border=1 width=100% bgcolor="WHITE">';
-select '<tr><td bgcolor="#3399CC" align=center colspan=4><font color="WHITE"><b>Requ&ecirc;tes longues (sessions actives)</b></font></td></tr>';
-select '<tr><td bgcolor="WHITE" align=center><b>PID</b></td><td bgcolor="WHITE" align=center><b>Dure&eacute;</b></td><td bgcolor="WHITE" align=center><b>Requ&ecirc;te</b></td><td bgcolor="WHITE" align=center><b>Etat</b></td></tr>';
+select '<tr><td bgcolor="#3399CC" align=center colspan=5><font color="WHITE"><b>Requ&ecirc;tes longues (sessions actives) ou IDLE (sessions ouvertes inactives)</b></font></td></tr>';
+select '<tr><td bgcolor="WHITE" align=center><b>PID</b></td><td bgcolor="WHITE" align=center><b>Client IP</b></td><td bgcolor="WHITE" align=center><b>Dur&eacute;e</b></td><td bgcolor="WHITE" align=center><b>Requ&ecirc;te</b></td><td bgcolor="WHITE" align=center><b>Etat</b></td></tr>';
 SELECT
-  '<tr><td bgcolor="LIGHTBLUE" align=left>',pid,'</td><td bgcolor="LIGHTBLUE" align=left>',now() - pg_stat_activity.query_start,
+  '<tr><td bgcolor="LIGHTBLUE" align=left>',pid,'</td><td bgcolor="LIGHTBLUE" align=left>',client_addr,'</td><td bgcolor="LIGHTBLUE" align=left>',now() - pg_stat_activity.query_start as runtime,
   '</td><td bgcolor="LIGHTBLUE" align=left>',query,'</td><td bgcolor="LIGHTBLUE" align=left>',state,'</td></tr>'
 FROM pg_stat_activity
-WHERE (now() - pg_stat_activity.query_start) > interval '5 minutes';
+WHERE (now() - pg_stat_activity.query_start) > interval '5 minutes' and state != 'idle'
+ORDER BY runtime DESC;
 
-SELECT CASE WHEN count(pid)=0 THEN '<tr><td bgcolor="LIGHTGREY" align=center colspan=4>Aucune requ&ecirc;te longue active</td></tr>' END
+SELECT CASE WHEN count(pid)=0 THEN '<tr><td bgcolor="LIGHTGREY" align=center colspan=5>Aucune requ&ecirc;te longue active</td></tr>' END
   FROM pg_stat_activity
-WHERE (now() - pg_stat_activity.query_start) > interval '5 minutes';
+WHERE (now() - pg_stat_activity.query_start) > interval '5 minutes' and state != 'idle';
+
+SELECT'<tr><td bgcolor="LIGHTBLUE" align=left colspan=4>Nombre total de sessions IDLE (ouvertes, inactives)','</td><td bgcolor="LIGHTBLUE" align=left>', count(*) FROM pg_stat_activity
+WHERE state = 'idle';
 
 select '</table>';
 select '<br>';
@@ -486,12 +536,21 @@ select '<hr>';
 select '<div align=center><b><font color="WHITE">SECTION SCHEMAS</font></b></div>';
 select '<hr>';
 
+-- ************ Utilisateurs ************
+select '<table border=1 width=100% bgcolor="WHITE">';
+select '<tr><td bgcolor="#3399CC" align=center colspan=3><font color="WHITE"><b>Liste des utilisateurs</b></font></td></tr>';
+select '<tr><td bgcolor="WHITE" align=center><b>Utilisateur</b></td><td bgcolor="WHITE" align=center><b>Superuser ?</b></td></tr>';
+
+select '<tr><td bgcolor="LIGHTBLUE" align=left>', usename, '</td><td bgcolor="LIGHTBLUE" align=left>', CASE WHEN usesuper='t' THEN 'True' ELSE 'False' END, '</td></tr>' from pg_user;
+
+select '</table>';
+select '<br>';
+
 -- ************ Tailles objets ************
 select '<table border=1 width=100% bgcolor="WHITE">';
 select '<tr><td bgcolor="#3399CC" align=center colspan=3><font color="WHITE"><b>Tailles des objets - top 10</b></font></td></tr>';
 -- SELECT '<tr><td bgcolor="LIGHTBLUE" align=left><b>TODO</b> - seulement possible sur la base en cours (pg_catalog -> droits admin)</td><tr>';
 select '<tr><td bgcolor="WHITE" align=center><b>Objet</b></td><td bgcolor="WHITE" align=center><b>Type</b></td><td bgcolor="WHITE" align=center><b>Taille</b></td></tr>';
-
 
 SELECT '<tr><td bgcolor="LIGHTBLUE" align=left>', N.nspname || '.' || C.relname AS "relation", '</td><td bgcolor="LIGHTBLUE" align=left>', 
     CASE WHEN reltype = 0
@@ -518,13 +577,15 @@ select '<tr><td bgcolor="#3399CC" align=center colspan=6><font color="WHITE"><b>
 select '<tr><td bgcolor="WHITE" align=center><b>Table</b></td><td bgcolor="WHITE" align=center><b>Taille de la table</b></td><td bgcolor="WHITE" align=center><b>Nombre de lignes</b></td><td bgcolor="WHITE" align=center><b>Scans s&eacute;quentiels</b></td><td bgcolor="WHITE" align=center><b>Scans indexes</b></td><td bgcolor="WHITE" align=center><b>Diff&eacute;rence</b></td></td></tr>';
 --     SELECT relname, seq_scan-idx_scan AS too_much_seq, CASE WHEN seq_scan-idx_scan>0 THEN 'Missing Index?' ELSE 'OK' END, pg_relation_size(relname::regclass) AS rel_size, seq_scan, idx_scan FROM pg_stat_all_tables WHERE schemaname='public' AND pg_relation_size(relname::regclass)>80000 ORDER BY too_much_seq DESC;
 SELECT '<tr><td bgcolor="LIGHTBLUE" align=left>',relname,'</td><td bgcolor="LIGHTBLUE" align=right>',pg_size_pretty(pg_relation_size(relname::regclass)),'</td><td bgcolor="LIGHTBLUE" align=right>', n_live_tup, '</td><td bgcolor="LIGHTBLUE" align=right>', seq_scan,'</td><td bgcolor="LIGHTBLUE" align=right>', idx_scan,'</td><td bgcolor="LIGHTBLUE" align=right>',seq_scan-idx_scan,'</td></tr>'
- FROM pg_stat_all_tables
- WHERE schemaname='public' AND pg_relation_size(relname::regclass)>80000 AND seq_scan-idx_scan > 0
+ FROM pg_stat_user_tables
+-- WHERE schemaname='public' AND pg_relation_size(relname::regclass)>80000 AND seq_scan-idx_scan > 0
+WHERE pg_relation_size(relname::regclass)>80000 AND seq_scan-idx_scan > 0
  ORDER BY seq_scan-idx_scan DESC;
 
 SELECT CASE WHEN count(relname)=0 THEN '<tr><td bgcolor="LIGHTGREY" align=center colspan=6>Aucun index manquant</td></tr>' END
- FROM pg_stat_all_tables
- WHERE schemaname='public' AND pg_relation_size(relname::regclass)>80000 AND seq_scan-idx_scan > 0;
+ FROM pg_stat_user_tables
+-- WHERE schemaname='public' AND pg_relation_size(relname::regclass)>80000 AND seq_scan-idx_scan > 0;
+WHERE pg_relation_size(relname::regclass)>80000 AND seq_scan-idx_scan > 0;
 
 select '</table>';
 select '<br>';
