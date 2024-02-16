@@ -22,6 +22,7 @@
 --   05/2017 v0.2 : Les principales requêtes sont mises en forme.
 --   06/2017 v0.3 : Liste des indexes manquants et indexes inutilisés
 --   11/2019 v0.4 : Ajout des statistiques sur les requêtes longues
+--   02/2024 v1.0 : script stable
 -- -----------
 -- Librement inspire d'internet, des sites, et des scripts et tips suivants :
 -- http://www.dalibo.org/glmf106_les_vues_systemes_sous_postgresql_8.3
@@ -65,6 +66,7 @@
 -- or
 -- select * from pg_stat_statements where total_time / calls > 200; -- etc ..
 --
+-- "/gset" est nécessaire depuis la 9.3 pour envoyer le résultat d'une requête dans une variable
 -- *** NOTE PG_STAT_STATMENTS POUR LES VERSIONS < 9.2 ***
 -- pg_stat_statments a été amélioré à partir de 9.2, notamment, il est capable de grouper des requêtes similaires ensemble
 -- permettant d'être plus efficace en analyse.
@@ -204,9 +206,9 @@
 -- ================================================= SCRIPT D'AUDIT =========================================
 -- =================================================      USAGE     =========================================
 
--- créer "USERAUDIT" 
--- alter USERAUDIT audit with superuser;
--- grant SELECT on *.* to USERAUDIT@'%';
+-- créer "USERAUDIT"
+-- alter user USERAUDIT with superuser;
+-- grant SELECT on to USERAUDIT;
 -- 
 -- Lancer: "PGPASSWORD=<pass> psql -qAt -F '' --single-transaction -v host=<host> -h <host> -U USER -f audit_pgsql_html.sql -d <database> > fichier.html"
 --
@@ -223,10 +225,16 @@ select '</head>';
 select '<BODY BGCOLOR="#003366">';
 select '<table border=0 width=90% bgcolor="#003366" align=center><tr><td>';
 
+-- SCRIPT VERSION
+select '<!-- (hide output with comment tag)'; 
+select '1.0' as scr_version;
+\gset
+select '-->';
+
 select '<table border=1 width=100% bgcolor="WHITE">';
 select '<tr><td bgcolor="#3399CC" align=center>';
-select '<font color=WHITE size=+2><b>Audit POSTGRESQL (',:'host',')',' le ',to_char(current_timestamp,'DD/MM/YYYY'),'</b>';
-select '</font></td></tr></table>';
+select '<font color=WHITE size=+2><b>Audit POSTGRESQL (',:'host',')',' le ',to_char(current_timestamp,'DD/MM/YYYY'),'</b></font></td><td align=center><font size=1>script v',:scr_version,'</font></td>';
+select '</tr></table>';
 select '<br>';
 
 select '<!-- (hide output with comment tag)'; 
@@ -275,6 +283,9 @@ select '<div align=center><b><font color="WHITE">SECTION CONFIGURATION</font></b
 select '<hr>';
 
 select '<table border=1 width=100% bgcolor="WHITE">';
+select '<tr><td bgcolor="#3399CC" align=center colspan=4><font color="WHITE"><b>Fichier de configuration</b></font></td></tr>';
+select '<tr><td bgcolor="WHITE" align=center colspan=4><b>', setting,' </td></tr>' from pg_settings where name='config_file';
+
 select '<tr><td bgcolor="#3399CC" align=center colspan=4><font color="WHITE"><b>Principaux param&egrave;tres d''initialisation</b></font></td></tr>';
 select '<tr><td bgcolor="WHITE" align=center width=40%><b>Nom</b></td><td bgcolor="WHITE" align=center><b>Valeur</b></td><td bgcolor="WHITE" align=center><b>Source</b></td><td bgcolor="WHITE" align=center><b>Modifiable ?</b></td></tr>';
 
@@ -289,6 +300,8 @@ select '<tr><td bgcolor="WHITE" align=left><b>', name, '</b></td><td bgcolor="LI
 'ident_file',
 'log_destination',
 'logging_collector',
+'pg_stat_statements.track',
+'pg_stat_statements.save',
 'maintenance_work_mem',
 'max_connections',
 'password_encryption',
@@ -298,7 +311,30 @@ select '<tr><td bgcolor="WHITE" align=left><b>', name, '</b></td><td bgcolor="LI
 'temp_buffers',
 'wal_level',
 'fsync',
-'work_mem');
+'work_mem',
+'bgwriter_flush_after',
+'backend_flush_after',
+'wal_writer_flush_after',
+'checkpoint_flush_after',
+'wal_buffers',
+'effective_io_concurrency',
+'random_page_cost',
+'max_worker_processes',
+'max_parallel_workers',
+'max_parallel_workers_per_gather',
+'min_parallel_table_scan_size',
+'min_parallel_index_scan_size',
+'min_wal_size',
+'max_wal_size',
+'checkpoint_timeout',
+'checkpoint_completion_target',
+'shared_preload_libraries',
+'log_duration',
+'log_statement',
+'track_activities',
+'track_counts',
+'track_functions',
+'track_io_timing');
 
 select '</table>';
 select '<br>';
@@ -360,6 +396,8 @@ select '<br>';
 
 -- ************ Tailles objets ************
 -- !!! COMMENT L'AFFICHER POUR CHAQUE BASE, PAS SEULEMENT current_database ??
+
+-- TODO : les TOAST ne seraient pas pris en compte dans ce calcul ? A valider et modifier
 
 select '<table border=1 width=100% bgcolor="WHITE">';
 select '<tr><td bgcolor="#3399CC" align=center colspan=2><font color="WHITE"><b>Taille totale des objets (base en cours: ',current_database(),')</b></font></td></tr>';
@@ -573,7 +611,7 @@ select '<br>';
 
 -- ************ Indexes manquants ************
 select '<table border=1 width=100% bgcolor="WHITE">';
-select '<tr><td bgcolor="#3399CC" align=center colspan=6><font color="WHITE"><b>Indexes manquants</b></font></td></tr>';
+select '<tr><td bgcolor="#3399CC" align=center colspan=6><font color="WHITE"><b>Indexes manquants (trop de FULL SCANs par rapports aux indexes)</b></font></td></tr>';
 select '<tr><td bgcolor="WHITE" align=center><b>Table</b></td><td bgcolor="WHITE" align=center><b>Taille de la table</b></td><td bgcolor="WHITE" align=center><b>Nombre de lignes</b></td><td bgcolor="WHITE" align=center><b>Scans s&eacute;quentiels</b></td><td bgcolor="WHITE" align=center><b>Scans indexes</b></td><td bgcolor="WHITE" align=center><b>Diff&eacute;rence</b></td></td></tr>';
 --     SELECT relname, seq_scan-idx_scan AS too_much_seq, CASE WHEN seq_scan-idx_scan>0 THEN 'Missing Index?' ELSE 'OK' END, pg_relation_size(relname::regclass) AS rel_size, seq_scan, idx_scan FROM pg_stat_all_tables WHERE schemaname='public' AND pg_relation_size(relname::regclass)>80000 ORDER BY too_much_seq DESC;
 SELECT '<tr><td bgcolor="LIGHTBLUE" align=left>',relname,'</td><td bgcolor="LIGHTBLUE" align=right>',pg_size_pretty(pg_relation_size(relname::regclass)),'</td><td bgcolor="LIGHTBLUE" align=right>', n_live_tup, '</td><td bgcolor="LIGHTBLUE" align=right>', seq_scan,'</td><td bgcolor="LIGHTBLUE" align=right>', idx_scan,'</td><td bgcolor="LIGHTBLUE" align=right>',seq_scan-idx_scan,'</td></tr>'
